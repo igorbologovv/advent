@@ -2,92 +2,149 @@ use crate::io::BufReader;
 use std::fs::File;
 use std::io::{self, BufRead};
 
-fn str_to_num(st: &str) -> i32 {
-    st.trim().parse::<i32>().unwrap()
-}
-fn extract_game_number(line: &String) -> u32 {
-    let parts: Vec<&str> = line.split(':').collect();
-
-    let extract_game: Vec<&str> = parts[0].trim().split(" ").collect();
-
-    //print!("{:?}", extract_game);
-    let game_number = extract_game[1].trim().parse::<u32>().unwrap();
-    game_number
+fn open_file(path_to_file: &str) -> io::Result<BufReader<File>> {
+    let file = File::open(path_to_file)?;
+    let reader = BufReader::new(file);
+    Ok(reader)
 }
 
-fn extract_game_data(line: &String) -> Vec<&str> {
-    let parts: Vec<&str> = line.split(':').collect();
-
-    let second_part: Vec<&str> = parts[1].trim().split(";").collect();
-
-    second_part
+fn is_string_numeric(s: &str) -> bool {
+    s.parse::<i32>().is_ok()
 }
 
-fn is_bigger(
-    cube_color: &str,
-    etalon_color: &str,
-    current_maximum: i32,
-    number: &str,
-) -> Option<i32> {
-    if cube_color == etalon_color {
-        // println!("{:?} == {:?}", cube_color, etalon_color);
-        let num = str_to_num(number);
-        if num > current_maximum {
-            // println!("{:?} > {:?}", num, possible_amount);
-            return Some(num);
-        } else {
-            return None;
+fn process_lines(reader: BufReader<File>) -> Vec<Vec<String>> {
+    let mut two_d_array: Vec<Vec<String>> = Vec::new();
+
+    for line_result in reader.lines() {
+        match line_result {
+            Ok(line) => {
+                let characters: Vec<String> = line.chars().map(|c| c.to_string()).collect();
+                two_d_array.push(characters);
+            }
+            Err(err) => {
+                eprintln!("Error reading line: {}", err);
+            }
         }
     }
 
-    None
+    two_d_array
 }
 
-fn main() -> io::Result<()> {
-    let file = File::open("/home/peteshko/advent_of_code/cubes.txt")?;
-    let reader = BufReader::new(file);
+fn get_neighbors(row: usize, col: usize, rows: usize, cols: usize) -> Vec<(usize, usize)> {
+    let mut neighbors = Vec::new();
 
-    let mut sum_of_products = 0;
-    for line in reader.lines() {
-        let line = line?;
+    // Check left
+    if col > 0 {
+        neighbors.push((row, col - 1));
+    }
 
-        let mut red_max = 0;
-        let mut green_max = 0;
-        let mut blue_max = 0;
+    // Check right
+    if col < cols - 1 {
+        neighbors.push((row, col + 1));
+    }
 
-        if line != "" {
-            // "num color, num color", "num color, num color", "num color, num color";
-            let game_data = extract_game_data(&line);
+    // Check up
+    if row > 0 {
+        neighbors.push((row - 1, col));
+    }
 
-            for game in game_data {
-                //"num color", "num color";
-                let num_color_list: Vec<&str> = game.split(",").collect();
+    // Check down
+    if row < rows - 1 {
+        neighbors.push((row + 1, col));
+    }
 
-                for n_c in num_color_list {
-                    //"num", "color"
-                    let num_color_vec: Vec<&str> = n_c.trim().split(" ").collect();
+    // Check diagonals
+    if row > 0 && col > 0 {
+        neighbors.push((row - 1, col - 1)); // Top-left
+    }
+    if row > 0 && col < cols - 1 {
+        neighbors.push((row - 1, col + 1)); // Top-right
+    }
+    if row < rows - 1 && col > 0 {
+        neighbors.push((row + 1, col - 1)); // Bottom-left
+    }
+    if row < rows - 1 && col < cols - 1 {
+        neighbors.push((row + 1, col + 1)); // Bottom-right
+    }
 
-                    if let Some(val) = is_bigger(num_color_vec[1], "red", red_max, num_color_vec[0])
-                    {
-                        red_max = val;
+    neighbors
+}
+
+fn main() {
+    let path_to_file = "/home/peteshko/advent_of_code/engine_number.txt";
+    let mut two_d_array: Vec<Vec<String>> = Vec::new();
+    match open_file(path_to_file) {
+        Ok(reader) => {
+            two_d_array = process_lines(reader);
+        }
+        Err(err) => {
+            eprintln!("Error opening file: {}", err);
+        }
+    }
+    let mut numbers_to_sum = 0;
+
+    let mut number_seq: String = "".to_string();
+
+    let mut check_list: Vec<(usize, usize)> = Vec::new();
+
+    for (row_idx, line) in two_d_array.iter().enumerate() {
+        for (col_idx, symbol) in line.iter().enumerate() {
+            if symbol == "*" {
+                let mut neighbor_product: Vec<i32> = Vec::new();
+
+                // It means we found some symbol, now get all values, which are nex to it.
+                let neighbors = get_neighbors(row_idx, col_idx, two_d_array.len(), line.len());
+
+                for neighbor in neighbors.clone() {
+                    if let Some(row) = two_d_array.get(neighbor.0) {
+                        if let Some(cell) = row.get(neighbor.1) {
+                            //Check if the cell contains a numeric value
+                            if cell.chars().all(char::is_numeric) {
+                                // Check left and right for adjacent numbers
+                                let mut left_index = neighbor.1;
+                                let mut right_index = neighbor.1;
+                                // Try to find number in checklist
+                                if !check_list.contains(&(neighbor)) {
+                                    // Check left
+                                    while left_index > 0
+                                        && row[left_index - 1].chars().all(char::is_numeric)
+                                    {
+                                        left_index -= 1;
+                                        if neighbors.clone().contains(&(neighbor.0, left_index)) {
+                                            let pos = (neighbor.0, left_index);
+                                            check_list.push(pos);
+                                        }
+                                    }
+
+                                    // Check right
+                                    while right_index < row.len() - 1
+                                        && row[right_index + 1].chars().all(char::is_numeric)
+                                    {
+                                        right_index += 1;
+                                        if neighbors.clone().contains(&(neighbor.0, right_index)) {
+                                            let pos = (neighbor.0, right_index);
+                                            check_list.push(pos);
+                                        }
+                                    }
+
+                                    // Collect numbers which we found into a srring
+                                    let concatenated_number: String =
+                                        row[left_index..=right_index].iter().cloned().collect();
+
+                                    // Do something with the concatenated number
+                                    neighbor_product
+                                        .push(concatenated_number.parse::<i32>().unwrap())
+                                }
+                            }
+                        }
                     }
+                }
 
-                    if let Some(val) =
-                        is_bigger(num_color_vec[1], "green", green_max, num_color_vec[0])
-                    {
-                        green_max = val;
-                    }
-
-                    if let Some(val) =
-                        is_bigger(num_color_vec[1], "blue", blue_max, num_color_vec[0])
-                    {
-                        blue_max = val;
-                    }
+                if neighbor_product.len() == 2 {
+                    numbers_to_sum += neighbor_product[0] * neighbor_product[1];
                 }
             }
         }
-        sum_of_products += red_max * green_max * blue_max;
     }
-    println!("Sum of Game Numbers: {}", sum_of_products);
-    Ok(())
+    println!("Concatenated Number: {}", numbers_to_sum);
 }
